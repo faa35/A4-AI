@@ -1,24 +1,33 @@
 import math
 import nn
-
-
+#we are gonna import numpy
+import numpy as np
 import util
 ###########################################################################
 class NaiveBayesDigitClassificationModel(object):
 
+
+####Naive Bayes model for digit classification.
+
     def __init__(self):
+########Initialize the model with default parameters and placeholders for probabilities.
         self.conditionalProb = None
         self.prior = None
         self.features = None
         self.k = 1 # this is the smoothing parameter, ** use it in your train method **
         self.automaticTuning = True # Look at this flag to decide whether to choose k automatically ** use this in your train method **
+                                    # we are checking if it to choose k automatically
         self.legalLabels = range(10)
 
     def train(self, dataset):
+
+        # Here we are gonna train the model using the dataset, optionally tuning the smoothing parameter k.
         # this is a list of all features in the training set.
         self.features = list(set([f for datum in dataset.trainingData for f in datum.keys()]))
 
         kgrid = [0.00005, 0.0001, 0.0005, 0.001, 0.005, 0.01, 0.02, 0.05, 0.5, 1, 5]
+        if not self.automaticTuning: # if k is fixed, only try one value
+            kgrid = [self.k]
         self.trainAndTune(dataset, kgrid)
 
     def trainAndTune(self, dataset, kgrid):
@@ -42,59 +51,71 @@ class NaiveBayesDigitClassificationModel(object):
         bestAccuracyCount = -1  # best accuracy so far on validation set
         #Common training - get all counts from training data
         #We only do it once - save computation in tuning smoothing parameter
-        commonPrior = util.Counter()  # Prior probability over labels
-        commonConditionalProb = util.Counter()  #Conditional probability of feature feat being 1 indexed by (feat, label)
-        commonCounts = util.Counter()  #how many time I have seen feature 'feat' with label 'y' whether inactive or active
-        bestParams = (commonPrior, commonConditionalProb, kgrid[0])  # used for smoothing part  trying various Laplace factors kgrid
+        commonPrior = util.Counter()  # Prior probability over labels(counting over labels)
+        #commonConditionalProb = util.Counter()  #Conditional probability of feature feat being 1 indexed by (feat, label)
+        #commonCounts = util.Counter()  #how many time I have seen feature 'feat' with label 'y' whether inactive or active
+        #bestParams = (commonPrior, commonConditionalProb, kgrid[0])  # used for smoothing part  trying various Laplace factors kgrid
 
+        commonFeatureCounts = {}  # counts of features per label
+
+        # Initialize counts
+        for label in self.legalLabels:
+            commonPrior[label] = 0
+            commonFeatureCounts[label] = util.Counter()
+
+        # looping for populating counts
         for i in range(len(trainingData)):
             datum = trainingData[i]
             label = int(trainingLabels[i])
-            "*** YOUR CODE HERE to complete populating commonPrior, commonCounts, and commonConditionalProb ***"
-            util.raiseNotDefined()
+            #"*** YOUR CODE HERE to complete populating commonPrior, commonCounts, and commonConditionalProb ***"
+            #util.raiseNotDefined()
 
+
+            # Update prior count
+            commonPrior[label] += 1
+            # update feature counts
+            for feature, value in datum.items():
+                commonFeatureCounts[label][(feature, value)] += 1
+
+        totalData = len(trainingData)
+
+        # lets try different k values
         for k in kgrid:  # smoothing parameter tuning loop
             prior = util.Counter()
             conditionalProb = util.Counter()
-            counts = util.Counter()
 
-            # get counts from common training step
-            for key, val in commonPrior.items():
-                prior[key] += val
-            for key, val in commonCounts.items():
-                counts[key] += val
-            for key, val in commonConditionalProb.items():
-                conditionalProb[key] += val
-
-            # smoothing:
+            # Compute prior probabilities
             for label in self.legalLabels:
-                for feat in self.features:
-                    "*** YOUR CODE HERE to update conditionalProb and counts using Lablace smoothing ***"
-                    util.raiseNotDefined()
+                prior[label] = float(commonPrior[label]) / totalData
 
-            # normalizing:
-            prior.normalize()
-            "**** YOUR CODE HERE to normalize conditionalProb "
+            # lets compute conditional probabilities with Laplace smoothing
+            for label in self.legalLabels:
+                labelFeatureCounts = commonFeatureCounts[label]
+                totalLabelFeatures = commonPrior[label]
+                for feature in self.features:
+                    for value in [0, 1]:
+                        count = labelFeatureCounts.get((feature, value), 0) + k
+                        totalCount = totalLabelFeatures + k * 2  # two possible values: 0 and 1
+                        conditionalProb[(feature, label, value)] = float(count) / totalCount
 
-
+            # Temporarily storing the parameters
             self.prior = prior
             self.conditionalProb = conditionalProb
 
             # evaluating performance on validation
             predictions = self.classify(validationData)
-            accuracyCount = [predictions[i] == validationLabels[i] for i in range(len(validationLabels))].count(True)
+            accuracyCount = sum(int(predictions[i] == validationLabels[i]) for i in range(len(validationLabels)))
 
             print("Performance on validation set for k=%f: (%.1f%%)" % (
-            k, 100.0 * accuracyCount / len(validationLabels)))
+                k, 100.0 * accuracyCount / len(validationLabels)))
             if accuracyCount > bestAccuracyCount:
-                bestParams = (prior, conditionalProb, k)
+                bestParams = (prior.copy(), conditionalProb.copy(), k)
                 bestAccuracyCount = accuracyCount
-            # end of automatic tuning loop
 
+        # below we are setting the best parameters
         self.prior, self.conditionalProb, self.k = bestParams
         print("Best Performance on validation set for k=%f: (%.1f%%)" % (
             self.k, 100.0 * bestAccuracyCount / len(validationLabels)))
-
 
     def classify(self, testData):
         """
@@ -104,10 +125,12 @@ class NaiveBayesDigitClassificationModel(object):
         guesses = []
         self.posteriors = [] # Log posteriors are stored for later data analysis
         for datum in testData:
-            ("***YOUR CODE HERE***  use calculateLogJointProbabilities() to compute posterior per datum  and use"
-             "it to find best guess digit for datum and at the end accumulate in self.posteriors for later use")
-            util.raiseNotDefined()
-
+            # Compute the log joint probabilities for each label
+            logJoint = self.calculateLogJointProbabilities(datum)
+            # Find the label with the highest log probability
+            bestLabel = logJoint.argMax()
+            guesses.append(bestLabel)
+            self.posteriors.append(logJoint)
         return guesses
 
     def calculateLogJointProbabilities(self, datum):
@@ -122,8 +145,15 @@ class NaiveBayesDigitClassificationModel(object):
         logJoint = util.Counter()
 
         for label in self.legalLabels:
-            "*** YOUR CODE HERE, to populate logJoint() list ***"
-            util.raiseNotDefined()
+            logProb = math.log(self.prior[label]) if self.prior[label] > 0 else float('-inf')
+            for feature in self.features:
+                value = datum[feature]
+                prob = self.conditionalProb.get((feature, label, value), 1e-10)
+                if prob > 0:
+                    logProb += math.log(prob)
+                else:
+                    logProb += float('-inf')
+            logJoint[label] = logProb
         return logJoint
 
 ################################################################################3
@@ -153,8 +183,7 @@ class PerceptronModel(object):
             x: a node with shape (1 x dimensions)
         Returns: a node containing a single number (the score)
         """
-        "*** YOUR CODE HERE ***"
-        util.raiseNotDefined()
+        return nn.DotProduct(x, self.w)
 
     def get_prediction(self, x):
         """
@@ -162,29 +191,40 @@ class PerceptronModel(object):
 
         Returns: 1 or -1
         """
-        "*** YOUR CODE HERE ***"
-        util.raiseNotDefined()
+        y = self.run(x)
+        return 1 if nn.as_scalar(y) >= 0 else -1
 
     def train(self, dataset):
         """
         Train the perceptron until convergence.
         """
-        "*** YOUR CODE HERE ***"
-        util.raiseNotDefined()
+        converged = False
+        while not converged:
+            converged = True
+            for x, y in dataset.iterate_once(1):
+                prediction = self.get_prediction(x)
+                actual = nn.as_scalar(y)
+                if prediction != actual:
+                    self.w.update(nn.Constant(x.data * actual), 1)
+                    converged = False
 
 ########################################################################33
 class RegressionModel(object):
     """
     A neural network model for approximating a function that maps from real
-    numbers to real numbers. The network should be sufficiently large to be able
-    to approximate sin(x) on the interval [-2pi, 2pi] to reasonable precision.
+    numbers to real numbers.
     """
     def __init__(self):
         # Initialize your model parameters here. Here you setup the architecture of your NN, meaning how many
         # layers and corresponding weights, what is the batch_size, and learning_rate.
-        "*** YOUR CODE HERE ***"
-        util.raiseNotDefined()
-
+        self.W1 = nn.Parameter(1, 40)
+        self.b1 = nn.Parameter(1, 40)
+        self.W2 = nn.Parameter(40, 30)
+        self.b2 = nn.Parameter(1, 30)
+        self.W3 = nn.Parameter(30, 1)
+        self.b3 = nn.Parameter(1, 1)
+        self.learning_rate = 0.01
+        #3 layers
 
     def run(self, x):
         """
@@ -194,9 +234,15 @@ class RegressionModel(object):
         Returns:
             A node with shape (batch_size x 1) containing predicted y-values
         """
-        "*** YOUR CODE HERE ***"
-        util.raiseNotDefined()
-
+        # First hidden layer
+        Z1 = nn.AddBias(nn.Linear(x, self.W1), self.b1)
+        A1 = nn.ReLU(Z1)
+        # Second hidden layer
+        Z2 = nn.AddBias(nn.Linear(A1, self.W2), self.b2)
+        A2 = nn.ReLU(Z2)
+        # Output layer
+        Z3 = nn.AddBias(nn.Linear(A2, self.W3), self.b3)
+        return Z3
 
     def get_loss(self, x, y):
         """
@@ -208,15 +254,29 @@ class RegressionModel(object):
                 to be used for training
         Returns: a loss node
         """
-        "*** YOUR CODE HERE ***"
-        util.raiseNotDefined()
+        prediction = self.run(x)
+        return nn.SquareLoss(prediction, y)
 
     def train(self, dataset):
         """
             Trains the model.
         """
-        "*** YOUR CODE HERE ***"
-        util.raiseNotDefined()
+        loss = float('inf')
+        while loss > 0.01:
+            for x, y in dataset.iterate_once(50):
+                # Compute loss and gradients
+                loss_node = self.get_loss(x, y)
+                gradients = nn.gradients(loss_node, [self.W1, self.b1, self.W2, self.b2, self.W3, self.b3])
+                # Update parameters
+                self.W1.update(gradients[0], -self.learning_rate)
+                self.b1.update(gradients[1], -self.learning_rate)
+                self.W2.update(gradients[2], -self.learning_rate)
+                self.b2.update(gradients[3], -self.learning_rate)
+                self.W3.update(gradients[4], -self.learning_rate)
+                self.b3.update(gradients[5], -self.learning_rate)
+            # Compute total loss on the dataset
+            loss = nn.as_scalar(self.get_loss(nn.Constant(dataset.x), nn.Constant(dataset.y)))
+            print(f"Current loss: {loss:.5f}")
 
 ##########################################################################
 class DigitClassificationModel(object):
@@ -235,8 +295,15 @@ class DigitClassificationModel(object):
     """
     def __init__(self):
         # Initialize your model parameters here
-        "*** YOUR CODE HERE ***"
-        util.raiseNotDefined()
+        
+
+        self.W1 = nn.Parameter(784, 250)
+        self.b1 = nn.Parameter(1, 250)
+        self.W2 = nn.Parameter(250, 150)
+        self.b2 = nn.Parameter(1, 150)
+        self.W3 = nn.Parameter(150, 10)
+        self.b3 = nn.Parameter(1, 10)
+        self.learning_rate = 0.1
 
     def run(self, x):
         """
@@ -252,8 +319,12 @@ class DigitClassificationModel(object):
             A node with shape (batch_size x 10) containing predicted scores
                 (also called logits)
         """
-        "*** YOUR CODE HERE ***"
-        util.raiseNotDefined()
+        Z1 = nn.AddBias(nn.Linear(x, self.W1), self.b1)
+        A1 = nn.ReLU(Z1)
+        Z2 = nn.AddBias(nn.Linear(A1, self.W2), self.b2)
+        A2 = nn.ReLU(Z2)
+        Z3 = nn.AddBias(nn.Linear(A2, self.W3), self.b3)
+        return Z3
 
     def get_loss(self, x, y):
         """
@@ -268,15 +339,22 @@ class DigitClassificationModel(object):
             y: a node with shape (batch_size x 10)
         Returns: a loss node
         """
-        "*** YOUR CODE HERE ***"
-        util.raiseNotDefined()
+        logits = self.run(x)
+        return nn.SoftmaxLoss(logits, y)
 
     def train(self, dataset):
         """
         Trains the model.
         """
-        "*** YOUR CODE HERE ***"
-        util.raiseNotDefined()
+        accuracy = 0.0
+        while accuracy < 0.976:
+            for x, y in dataset.iterate_once(60):
+                loss_node = self.get_loss(x, y)
+                gradients = nn.gradients(loss_node, [self.W1, self.b1, self.W2, self.b2, self.W3, self.b3])
+                for param, grad in zip([self.W1, self.b1, self.W2, self.b2, self.W3, self.b3], gradients):
+                    param.update(grad, -self.learning_rate)
+            accuracy = dataset.get_validation_accuracy()
+            print(f"Validation accuracy: {accuracy:.4f}")
 
 ###################################################################################
 class LanguageIDModel(object):
@@ -294,11 +372,24 @@ class LanguageIDModel(object):
         # You can refer to self.num_chars or len(self.languages) in your code
         self.num_chars = 47
         self.languages = ["English", "Spanish", "Finnish", "Dutch", "Polish"]
+        self.hidden_size = 350  # Hidden size for the RNN representation
 
-        # Initialize your model parameters here
-        "*** YOUR CODE HERE ***"
-        util.raiseNotDefined()
+        # Input-to-hidden and hidden-to-hidden parameters
+        self.W1 = nn.Parameter(self.num_chars, self.hidden_size)
+        self.b1 = nn.Parameter(1, self.hidden_size)
+        self.W_hidden1 = nn.Parameter(self.hidden_size, self.hidden_size)
+        self.b_hidden1 = nn.Parameter(1, self.hidden_size)
+        self.W_hidden2 = nn.Parameter(self.hidden_size, self.hidden_size)
+        self.b_hidden2 = nn.Parameter(1, self.hidden_size)
 
+        # Hidden-to-output parameters
+        self.W_output = nn.Parameter(self.hidden_size, len(self.languages))
+        self.b_output = nn.Parameter(1, len(self.languages))
+
+        # Training hyperparameters
+        self.learning_rate = 0.2
+        self.min_learning_rate = 0.01
+        self.decay_rate = 0.9
 
     def run(self, xs):
         """
@@ -329,8 +420,18 @@ class LanguageIDModel(object):
             A node with shape (batch_size x 5) containing predicted scores
                 (also called logits)
         """
-        "*** YOUR CODE HERE ***"
-        util.raiseNotDefined()
+        # Initialize hidden state
+        batch_size = xs[0].data.shape[0]
+        h = nn.Constant(np.zeros((batch_size, self.hidden_size)))
+
+        # Process each character in the sequence
+        for x in xs:
+            h1 = nn.ReLU(nn.AddBias(nn.Add(nn.Linear(x, self.W1), nn.Linear(h, self.W_hidden1)), self.b_hidden1))
+            h = nn.ReLU(nn.AddBias(nn.Linear(h1, self.W_hidden2), self.b_hidden2))
+
+        # Output layer
+        logits = nn.AddBias(nn.Linear(h, self.W_output), self.b_output)
+        return logits
 
     def get_loss(self, xs, y):
         """
@@ -346,12 +447,43 @@ class LanguageIDModel(object):
             y: a node with shape (batch_size x 5)
         Returns: a loss node
         """
-        "*** YOUR CODE HERE ***"
-        util.raiseNotDefined()
+        logits = self.run(xs)
+        return nn.SoftmaxLoss(logits, y)
 
     def train(self, dataset):
         """
         Trains the model.
         """
-        "*** YOUR CODE HERE ***"
-        util.raiseNotDefined()
+        learning_rate = self.learning_rate
+        max_epochs = 50
+        for epoch in range(max_epochs):
+            for xs, y in dataset.iterate_once(128):  #Larger batch size for faster training
+                #compute loss and gradients
+                loss = self.get_loss(xs, y)
+                gradients = nn.gradients(loss, [
+                    self.W1, self.b1,
+                    self.W_hidden1, self.b_hidden1,
+                    self.W_hidden2, self.b_hidden2,
+                    self.W_output, self.b_output
+                ])
+
+                # Gradient clipping to stabilize training
+                clipped_gradients = [nn.Constant(np.clip(grad.data, -5, 5)) for grad in gradients]
+
+                #update parameters
+                for param, grad in zip([self.W1, self.b1, self.W_hidden1, self.b_hidden1,
+                                        self.W_hidden2, self.b_hidden2, self.W_output, self.b_output], clipped_gradients):
+                    param.update(grad, -learning_rate)
+
+            #validation accuracy
+            accuracy = dataset.get_validation_accuracy()
+            print(f"Epoch {epoch + 1}: Validation Accuracy = {accuracy:.4%}")
+
+            # Early stopping
+            if accuracy >= 0.85:
+                print(f"Training complete! Validation accuracy: {accuracy:.4%}")
+                break
+
+            #decay learning rate
+            learning_rate = max(self.min_learning_rate, learning_rate * self.decay_rate)
+
